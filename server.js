@@ -2,9 +2,10 @@
  * Simple Affiliate System - Express + MongoDB (Wallet-Only Version)
  * Endpoints:
  *  POST /api/signup {name,walletAddress}
- *  GET  /api/user/:walletAddress  -> fetch user + stats
- *  GET  /api/admin/users          -> list all users (for dashboard)
- *  GET  /r/:code                  -> track clicks -> redirect to FRONTEND_SIGNUP_URL?ref=code
+ *  GET  /api/user/:walletAddress    -> fetch user + stats (never 404)
+ *  GET  /api/stats/:code            -> fetch stats by affiliate code
+ *  GET  /api/admin/users            -> list all users (for dashboard)
+ *  GET  /r/:code                    -> track click -> redirect to https://cr7react.vercel.app/signup?ref=code
  */
 
 require("dotenv").config();
@@ -19,16 +20,17 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 
-/**
- * FRONTEND CONFIG
- * Example .env:
- *   FRONTEND_ORIGIN=https://cr7react.vercel.app
- *   FRONTEND_SIGNUP_PATH=/signup
+/** ************** FRONTEND REDIRECT CONFIG (hard requirement) ************** **
+ * All affiliate clicks must redirect here:
+ *   https://cr7react.vercel.app/signup?ref=<code>
+ * You can still override via env if you want, but default is the Vercel app.
  */
 const FRONTEND_ORIGIN =
   process.env.FRONTEND_ORIGIN || "https://cr7react.vercel.app";
-const FRONTEND_SIGNUP_PATH = process.env.FRONTEND_SIGNUP_PATH || "/signup";
+const FRONTEND_SIGNUP_PATH =
+  process.env.FRONTEND_SIGNUP_PATH || "/signup";
 
+/** Affiliate code length */
 const AFF_LEN = parseInt(process.env.AFF_LEN || "9", 10);
 const nanoid = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", AFF_LEN);
 
@@ -80,23 +82,26 @@ mongoose
 app.get("/api/test", (_req, res) => res.json({ ok: true }));
 
 /**
- * SIGNUP - Save name + wallet, generate affiliate link (Backend tracking route)
+ * SIGNUP - Save name + wallet, generate affiliate link (server tracking route)
+ * Stored affiliateLink is the server's /r/:code URL so clicks are tracked.
  */
 app.post("/api/signup", async (req, res) => {
   try {
     const { name, walletAddress } = req.body || {};
-    if (!name || !walletAddress)
+    if (!name || !walletAddress) {
       return res
         .status(400)
         .json({ error: "name and walletAddress are required" });
+    }
 
     const existing = await User.findOne({ walletAddress: walletAddress.trim() });
-    if (existing)
+    if (existing) {
       return res.json({
         success: true,
         message: "Wallet already registered",
         user: existing,
       });
+    }
 
     // Generate unique affiliate code
     let affiliateCode;
@@ -106,8 +111,8 @@ app.post("/api/signup", async (req, res) => {
       if (!dup) break;
     }
 
-    // ✅ Use backend route for tracking clicks
-    const affiliateLink = `https://cr7react.vercel.app/r/${affiliateCode}`;
+    // Store backend tracking URL so clicks always go through /r/:code
+    const affiliateLink = `${BASE_URL.replace(/\/+$/, "")}/r/${affiliateCode}`;
 
     const user = await User.create({
       name: name.trim(),
@@ -125,13 +130,13 @@ app.post("/api/signup", async (req, res) => {
 
 /**
  * GET user + stats by wallet address
+ * Never returns 404 for the dashboard — returns success:false + empty stats instead.
  */
 app.get("/api/user/:walletAddress", async (req, res) => {
   try {
     const wallet = req.params.walletAddress.trim();
     const user = await User.findOne({ walletAddress: wallet });
 
-    // ✅ Always return JSON instead of 404
     if (!user) {
       return res.json({
         success: false,
@@ -168,15 +173,18 @@ app.get("/api/user/:walletAddress", async (req, res) => {
   }
 });
 
-
 /**
- * GET user + stats
+ * GET stats by affiliate code (optional helper)
  */
 app.get("/api/stats/:code", async (req, res) => {
   try {
     const { code } = req.params;
-    const user = await User.findOne({ affiliateCode: code }).select("_id name walletAddress");
-    if (!user) return res.status(404).json({ error: "Affiliate not found" });
+    const user = await User.findOne({ affiliateCode: code }).select(
+      "_id name walletAddress"
+    );
+    if (!user) {
+      return res.status(404).json({ error: "Affiliate not found" });
+    }
 
     const [total, uniqueAgg] = await Promise.all([
       Click.countDocuments({ userId: user._id }),
@@ -222,7 +230,8 @@ app.get("/api/admin/users", async (_req, res) => {
 
 /**
  * CLICK TRACKER - /r/:code
- * Records click + redirects to frontend signup page
+ * 1) Records click
+ * 2) Redirects to https://cr7react.vercel.app/signup?ref=<code>
  */
 app.get("/r/:code", async (req, res) => {
   try {
@@ -247,13 +256,13 @@ app.get("/r/:code", async (req, res) => {
       referrer: ref,
     });
 
-    // ✅ Redirect to your frontend signup page with ?ref=CODE
+    // Always redirect to required frontend signup
     const target = new URL(FRONTEND_SIGNUP_PATH, FRONTEND_ORIGIN);
     target.searchParams.set("ref", code);
-
     return res.redirect(302, target.toString());
   } catch (err) {
     console.error("Click track error:", err);
+    // On error, still push to signup (without ref)
     return res.redirect(302, `${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}`);
   }
 });
