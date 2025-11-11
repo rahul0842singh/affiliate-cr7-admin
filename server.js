@@ -17,15 +17,18 @@ const Click = require("./models/Click");
 
 const app = express();
 
-// ✅ Set your base URL (your backend host)
-const BASE_URL =
-  process.env.BASE_URL || "https://affiliate-cr7-admin.onrender.com";
+/* -------------------- CONSTANTS -------------------- */
 const PORT = process.env.PORT || 3000;
 
-/** Redirect target — always frontend signup page */
+// ✅ The frontend base and signup URL
 const FRONTEND_ORIGIN = "https://cr7react.vercel.app";
 const FRONTEND_SIGNUP_PATH = "/signup";
 
+// ✅ This backend’s deployed URL (Render, etc.)
+const BASE_URL =
+  process.env.BASE_URL || "https://affiliate-cr7-admin.onrender.com";
+
+// ✅ Affiliate Code Generator
 const AFF_LEN = parseInt(process.env.AFF_LEN || "9", 10);
 const nanoid = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", AFF_LEN);
 
@@ -34,7 +37,7 @@ app.use(helmet());
 app.use(express.json());
 app.use("/public", express.static("public"));
 
-// Request logger
+// Logger
 app.use((req, _res, next) => {
   console.log(`[REQ] ${req.method} ${req.originalUrl}`);
   next();
@@ -62,9 +65,10 @@ app.use((req, res, next) => {
   return res.status(403).json({ error: "CORS blocked" });
 });
 
-/* -------------------- MONGO -------------------- */
+/* -------------------- MONGO CONNECTION -------------------- */
 const MONGODB_URI =
   process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/affiliate_mongo";
+
 mongoose
   .connect(MONGODB_URI)
   .then(() => console.log("✅ Mongo connected"))
@@ -77,7 +81,8 @@ mongoose
 app.get("/api/test", (_req, res) => res.json({ ok: true }));
 
 /**
- * SIGNUP - Create user and generate backend tracking link
+ * SIGNUP - Create user and generate affiliate link
+ * Always points to https://cr7react.vercel.app/signup?r=<code>
  */
 app.post("/api/signup", async (req, res) => {
   try {
@@ -90,6 +95,7 @@ app.post("/api/signup", async (req, res) => {
     const existing = await User.findOne({
       walletAddress: walletAddress.trim(),
     });
+
     if (existing)
       return res.json({
         success: true,
@@ -105,8 +111,8 @@ app.post("/api/signup", async (req, res) => {
       if (!dup) break;
     }
 
-    // ✅ Backend tracking link
-    const affiliateLink = `${BASE_URL}/r/${affiliateCode}`;
+    // ✅ Generate link for frontend
+    const affiliateLink = `${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}?ref=${affiliateCode}`;
 
     const user = await User.create({
       name: name.trim(),
@@ -189,7 +195,7 @@ app.get("/api/admin/users", async (_req, res) => {
 
 /**
  * CLICK TRACKER - /r/:code
- * Records click and redirects to https://cr7react.vercel.app/signup
+ * Redirects to https://cr7react.vercel.app/signup?ref=<code>
  */
 app.get("/r/:code", async (req, res) => {
   try {
@@ -214,15 +220,21 @@ app.get("/r/:code", async (req, res) => {
       referrer: ref,
     });
 
-    // ✅ Redirect without ?ref=code
-    const redirectUrl = `${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}`;
+    // ✅ Redirect with ref query parameter
+    const redirectUrl = `${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}?ref=${code}`;
     return res.redirect(302, redirectUrl);
   } catch (err) {
     console.error("Click track error:", err);
-    return res.redirect(302, `${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}`);
+    return res.redirect(
+      302,
+      `${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}`
+    );
   }
 });
 
+/**
+ * Root redirect to static page
+ */
 app.get("/", (_req, res) => res.redirect("/public/index.html"));
 
 /* -------------------- START -------------------- */
