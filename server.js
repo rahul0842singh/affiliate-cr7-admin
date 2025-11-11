@@ -23,11 +23,11 @@ const app = express();
 const FRONTEND_ORIGIN = "https://cr7react.vercel.app";
 const FRONTEND_SIGNUP_PATH = "/signup";
 
-// ✅ Your backend base (for server logs only)
+// ✅ Backend base (for logs only)
 const BASE_URL =
   process.env.BASE_URL || "https://affiliate-cr7-admin.onrender.com";
 
-// ✅ NanoID generator for affiliate code
+// ✅ NanoID generator
 const AFF_LEN = parseInt(process.env.AFF_LEN || "9", 10);
 const nanoid = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", AFF_LEN);
 
@@ -44,10 +44,7 @@ app.use((req, _res, next) => {
 });
 
 /* -------------------- CORS -------------------- */
-const allowedOrigins = [
-  FRONTEND_ORIGIN, // ✅ only allow frontend
-  BASE_URL,
-];
+const allowedOrigins = [FRONTEND_ORIGIN, BASE_URL];
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -76,10 +73,12 @@ mongoose
   });
 
 /* -------------------- ROUTES -------------------- */
+
+// Simple test route
 app.get("/api/test", (_req, res) => res.json({ ok: true }));
 
 /**
- * SIGNUP - Create user and generate frontend-based affiliate link
+ * SIGNUP - Create user and generate affiliate link
  */
 app.post("/api/signup", async (req, res) => {
   try {
@@ -108,7 +107,7 @@ app.post("/api/signup", async (req, res) => {
       if (!dup) break;
     }
 
-    // ✅ Always frontend link
+    // ✅ Always use frontend signup link
     const affiliateLink = `${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}?ref=${affiliateCode}`;
 
     const user = await User.create({
@@ -126,7 +125,7 @@ app.post("/api/signup", async (req, res) => {
 });
 
 /**
- * GET user + stats
+ * GET user + stats (total, unique IPs, clicks per day)
  */
 app.get("/api/user/:walletAddress", async (req, res) => {
   try {
@@ -192,13 +191,18 @@ app.get("/api/admin/users", async (_req, res) => {
 
 /**
  * CLICK TRACKER - /r/:code
- * Redirects to frontend signup with ?ref=<code>
+ * ✅ Counts every click (each hit = 1 record)
+ * ✅ Redirects to frontend signup with ?ref=<code>
  */
 app.get("/r/:code", async (req, res) => {
   try {
     const { code } = req.params;
     const user = await User.findOne({ affiliateCode: code }).select("_id");
-    if (!user) return res.status(404).end();
+
+    if (!user) {
+      console.warn("⚠️ Unknown affiliate code:", code);
+      return res.redirect(302, `${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}`);
+    }
 
     const ip =
       (
@@ -206,9 +210,10 @@ app.get("/r/:code", async (req, res) => {
         req.socket.remoteAddress ||
         ""
       ).toString();
-    const ua = req.headers["user-agent"] || "";
-    const ref = req.headers["referer"] || req.headers["referrer"] || "";
+    const ua = req.headers["user-agent"] || "unknown";
+    const ref = req.headers["referer"] || req.headers["referrer"] || "direct";
 
+    // ✅ Record every click (even same user/IP)
     await Click.create({
       userId: user._id,
       affiliateCode: code,
@@ -216,6 +221,8 @@ app.get("/r/:code", async (req, res) => {
       userAgent: ua,
       referrer: ref,
     });
+
+    console.log(`✅ Click recorded for ${code} from ${ip}`);
 
     const redirectUrl = `${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}?ref=${code}`;
     return res.redirect(302, redirectUrl);
@@ -228,6 +235,7 @@ app.get("/r/:code", async (req, res) => {
   }
 });
 
+// Root redirect to public folder
 app.get("/", (_req, res) => res.redirect("/public/index.html"));
 
 /* -------------------- START -------------------- */
