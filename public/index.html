@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Affiliate Lite</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; padding: 32px; }
+      input { padding: 8px 10px; margin: 4px 0; width: 280px; }
+      button { padding: 8px 12px; }
+    </style>
+  </head>
+  <body>
+    <h1>Affiliate Signup (Name + Wallet only)</h1>
+    <form id="f">
+      <div><input id="name" placeholder="Name" required /></div>
+      <div><input id="wallet" placeholder="Wallet Address" required /></div>
+      <button type="submit">Create Account</button>
+    </form>
+    <pre id="out"></pre>
+
+    <script>
+      const out = document.getElementById('out');
+      document.getElementById('f').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = document.getElementById('name').value.trim();
+        const walletAddress = document.getElementById('wallet').value.trim();
+        out.textContent = 'Submitting...';
+        try {
+          const res = await fetch('/api/signup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, walletAddress })
+          });
+          const data = await res.json();
+          out.textContent = JSON.stringify(data, null, 2);
+        } catch (err) {
+          out.textContent = 'Error: ' + err.message;
+        }
+      });
+    </script>
+  </body>
+</html>
