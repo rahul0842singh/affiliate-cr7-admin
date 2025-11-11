@@ -19,11 +19,9 @@ const app = express();
 
 /* -------------------- CONSTANTS -------------------- */
 
-// ✅ Hardcode the frontend for safety (never localhost)
+// ✅ Frontend + Backend URLs
 const FRONTEND_ORIGIN = "https://cr7react.vercel.app";
 const FRONTEND_SIGNUP_PATH = "/signup";
-
-// ✅ Backend base (for logs only)
 const BASE_URL =
   process.env.BASE_URL || "https://affiliate-cr7-admin.onrender.com";
 
@@ -76,12 +74,10 @@ mongoose
   });
 
 /* -------------------- ROUTES -------------------- */
-
-// Test route
 app.get("/api/test", (_req, res) => res.json({ ok: true }));
 
 /**
- * SIGNUP - Create user and generate affiliate link
+ * SIGNUP - Create user and generate BACKEND tracking affiliate link
  */
 app.post("/api/signup", async (req, res) => {
   try {
@@ -110,8 +106,8 @@ app.post("/api/signup", async (req, res) => {
       if (!dup) break;
     }
 
-    // ✅ Always use frontend signup link
-    const affiliateLink = `${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}?ref=${affiliateCode}`;
+    // ✅ Now generate BACKEND redirect link (not frontend)
+    const affiliateLink = `${BASE_URL}/r/${affiliateCode}`;
 
     const user = await User.create({
       name: name.trim(),
@@ -195,7 +191,7 @@ app.get("/api/admin/users", async (_req, res) => {
 
 /**
  * CLICK TRACKER - /r/:code
- * ✅ Debug-enabled version (records each step)
+ * Records every click then redirects to frontend signup with ?ref=code
  */
 app.get("/r/:code", async (req, res) => {
   console.log("🟢 [START] /r/:code route hit");
@@ -204,7 +200,7 @@ app.get("/r/:code", async (req, res) => {
     const { code } = req.params;
     console.log("🔹 Affiliate Code:", code);
 
-    // 1️⃣ Find user by affiliate code
+    // 1️⃣ Find the user
     const user = await User.findOne({ affiliateCode: code }).select("_id");
     if (!user) {
       console.warn("⚠️ No user found for this affiliate code:", code);
@@ -215,7 +211,7 @@ app.get("/r/:code", async (req, res) => {
     }
     console.log("✅ Found User ID:", user._id.toString());
 
-    // 2️⃣ Extract visitor data
+    // 2️⃣ Extract visitor info
     const ip =
       (
         req.headers["x-forwarded-for"]?.split(",")[0] ||
@@ -229,7 +225,7 @@ app.get("/r/:code", async (req, res) => {
     console.log("📱 User-Agent:", ua);
     console.log("↩️ Referrer:", ref);
 
-    // 3️⃣ Attempt to create click record
+    // 3️⃣ Save click
     try {
       const click = await Click.create({
         userId: user._id,
@@ -256,7 +252,6 @@ app.get("/r/:code", async (req, res) => {
   }
 });
 
-/* -------------------- ROOT -------------------- */
 app.get("/", (_req, res) => res.redirect("/public/index.html"));
 
 /* -------------------- START -------------------- */
