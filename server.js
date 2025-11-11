@@ -19,10 +19,10 @@ const Click = require("./models/Click");
 const app = express();
 
 /* -------------------- CONSTANTS -------------------- */
+// ✅ Always point to production URLs (no localhost anywhere)
 const FRONTEND_ORIGIN = "https://cr7react.vercel.app";
 const FRONTEND_SIGNUP_PATH = "/signup";
-const BASE_URL =
-  process.env.BASE_URL || "https://affiliate-cr7-admin.onrender.com";
+const BASE_URL = "https://affiliate-cr7-admin.onrender.com"; // force production backend link
 
 const AFF_LEN = parseInt(process.env.AFF_LEN || "9", 10);
 const nanoid = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", AFF_LEN);
@@ -81,10 +81,11 @@ app.get("/api/test", (_req, res) => res.json({ ok: true }));
 app.post("/api/signup", async (req, res) => {
   try {
     const { name, walletAddress } = req.body || {};
-    if (!name || !walletAddress)
+    if (!name || !walletAddress) {
       return res
         .status(400)
         .json({ error: "name and walletAddress are required" });
+    }
 
     const existing = await User.findOne({
       walletAddress: walletAddress.trim(),
@@ -104,6 +105,7 @@ app.post("/api/signup", async (req, res) => {
       if (!dup) break;
     }
 
+    // ✅ Always generate link from production backend domain
     const affiliateLink = `${BASE_URL}/r/${affiliateCode}`;
 
     const user = await User.create({
