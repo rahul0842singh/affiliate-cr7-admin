@@ -80,13 +80,15 @@ mongoose
 app.get("/api/test", (_req, res) => res.json({ ok: true }));
 
 /**
- * SIGNUP - Save name + wallet, generate affiliate link (Frontend URL)
+ * SIGNUP - Save name + wallet, generate affiliate link (Backend tracking route)
  */
 app.post("/api/signup", async (req, res) => {
   try {
     const { name, walletAddress } = req.body || {};
     if (!name || !walletAddress)
-      return res.status(400).json({ error: "name and walletAddress are required" });
+      return res
+        .status(400)
+        .json({ error: "name and walletAddress are required" });
 
     const existing = await User.findOne({ walletAddress: walletAddress.trim() });
     if (existing)
@@ -104,8 +106,8 @@ app.post("/api/signup", async (req, res) => {
       if (!dup) break;
     }
 
-    // ✅ Use FRONTEND URL for affiliate link (no localhost)
-    const affiliateLink = `${FRONTEND_ORIGIN}/signup?ref=${affiliateCode}`;
+    // ✅ Use backend route for tracking clicks
+    const affiliateLink = `${BASE_URL}/r/${affiliateCode}`;
 
     const user = await User.create({
       name: name.trim(),
@@ -199,7 +201,7 @@ app.get("/r/:code", async (req, res) => {
       referrer: ref,
     });
 
-    // ✅ Redirect user to your production signup page with ref param
+    // ✅ Redirect to your frontend signup page with ?ref=CODE
     const target = new URL(FRONTEND_SIGNUP_PATH, FRONTEND_ORIGIN);
     target.searchParams.set("ref", code);
 
