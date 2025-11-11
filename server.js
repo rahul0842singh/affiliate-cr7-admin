@@ -4,7 +4,7 @@
  *  POST /api/signup {name,walletAddress}
  *  GET  /api/user/:walletAddress    -> fetch user + stats (never 404)
  *  GET  /api/stats/:code            -> fetch stats by affiliate code
- *  GET  /api/admin/users            -> list all users (for dashboard)
+ *  GET  /api/admin/users            -> list all users
  *  GET  /r/:code                    -> track click -> redirect to https://cr7react.vercel.app/signup?ref=code
  */
 
@@ -18,17 +18,11 @@ const Click = require("./models/Click");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+const BASE_URL = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/+$/, "");
 
-/** ************** FRONTEND REDIRECT CONFIG (hard requirement) ************** **
- * All affiliate clicks must redirect here:
- *   https://cr7react.vercel.app/signup?ref=<code>
- * You can still override via env if you want, but default is the Vercel app.
- */
-const FRONTEND_ORIGIN =
-  process.env.FRONTEND_ORIGIN || "https://cr7react.vercel.app";
-const FRONTEND_SIGNUP_PATH =
-  process.env.FRONTEND_SIGNUP_PATH || "/signup";
+/** HARD REDIRECT TARGET */
+const FRONTEND_ORIGIN = "https://cr7react.vercel.app";
+const FRONTEND_SIGNUP_PATH = "/signup";
 
 /** Affiliate code length */
 const AFF_LEN = parseInt(process.env.AFF_LEN || "9", 10);
@@ -39,7 +33,6 @@ app.use(helmet());
 app.use(express.json());
 app.use("/public", express.static("public"));
 
-// Simple request logger
 app.use((req, _res, next) => {
   console.log(`[REQ] ${req.method} ${req.originalUrl}`);
   next();
@@ -49,8 +42,7 @@ app.use((req, _res, next) => {
 const allowedOrigins = [
   "http://localhost:5173",
   "http://127.0.0.1:5173",
-  "https://cr7react.vercel.app",
-  process.env.FRONTEND_ORIGIN || "",
+  FRONTEND_ORIGIN,
 ].filter(Boolean);
 
 app.use((req, res, next) => {
@@ -81,29 +73,20 @@ mongoose
 /* -------------------- ROUTES -------------------- */
 app.get("/api/test", (_req, res) => res.json({ ok: true }));
 
-/**
- * SIGNUP - Save name + wallet, generate affiliate link (server tracking route)
- * Stored affiliateLink is the server's /r/:code URL so clicks are tracked.
- */
+/** SIGNUP: create user + server-side tracking link */
 app.post("/api/signup", async (req, res) => {
   try {
     const { name, walletAddress } = req.body || {};
     if (!name || !walletAddress) {
-      return res
-        .status(400)
-        .json({ error: "name and walletAddress are required" });
+      return res.status(400).json({ error: "name and walletAddress are required" });
     }
 
     const existing = await User.findOne({ walletAddress: walletAddress.trim() });
     if (existing) {
-      return res.json({
-        success: true,
-        message: "Wallet already registered",
-        user: existing,
-      });
+      return res.json({ success: true, message: "Wallet already registered", user: existing });
     }
 
-    // Generate unique affiliate code
+    // unique affiliate code
     let affiliateCode;
     while (true) {
       affiliateCode = nanoid();
@@ -111,8 +94,8 @@ app.post("/api/signup", async (req, res) => {
       if (!dup) break;
     }
 
-    // Store backend tracking URL so clicks always go through /r/:code
-    const affiliateLink = `${BASE_URL.replace(/\/+$/, "")}/r/${affiliateCode}`;
+    // store the BACKEND tracker link (so clicks are recorded)
+    const affiliateLink = `${BASE_URL}/r/${affiliateCode}`;
 
     const user = await User.create({
       name: name.trim(),
@@ -128,10 +111,7 @@ app.post("/api/signup", async (req, res) => {
   }
 });
 
-/**
- * GET user + stats by wallet address
- * Never returns 404 for the dashboard — returns success:false + empty stats instead.
- */
+/** Fetch stats by wallet (never 404 to keep frontend simple) */
 app.get("/api/user/:walletAddress", async (req, res) => {
   try {
     const wallet = req.params.walletAddress.trim();
@@ -162,7 +142,7 @@ app.get("/api/user/:walletAddress", async (req, res) => {
     ]);
 
     const unique = uniqueAgg.length ? uniqueAgg[0].unique : 0;
-    return res.json({
+    res.json({
       success: true,
       user,
       stats: { totalClicks: total, uniqueClicks: unique, clicksByDay: byDay },
@@ -173,18 +153,12 @@ app.get("/api/user/:walletAddress", async (req, res) => {
   }
 });
 
-/**
- * GET stats by affiliate code (optional helper)
- */
+/** Optional: stats by affiliate code */
 app.get("/api/stats/:code", async (req, res) => {
   try {
     const { code } = req.params;
-    const user = await User.findOne({ affiliateCode: code }).select(
-      "_id name walletAddress"
-    );
-    if (!user) {
-      return res.status(404).json({ error: "Affiliate not found" });
-    }
+    const user = await User.findOne({ affiliateCode: code }).select("_id name walletAddress");
+    if (!user) return res.status(404).json({ error: "Affiliate not found" });
 
     const [total, uniqueAgg] = await Promise.all([
       Click.countDocuments({ userId: user._id }),
@@ -196,16 +170,12 @@ app.get("/api/stats/:code", async (req, res) => {
     ]);
 
     const unique = uniqueAgg.length ? uniqueAgg[0].unique : 0;
-
-    return res.json({
+    res.json({
       success: true,
       affiliateCode: code,
       name: user.name,
       walletAddress: user.walletAddress,
-      stats: {
-        totalClicks: total,
-        uniqueClicks: unique,
-      },
+      stats: { totalClicks: total, uniqueClicks: unique },
     });
   } catch (err) {
     console.error("Stats fetch error:", err);
@@ -213,25 +183,21 @@ app.get("/api/stats/:code", async (req, res) => {
   }
 });
 
-/**
- * ADMIN - List all users
- */
+/** Admin list */
 app.get("/api/admin/users", async (_req, res) => {
   try {
     const users = await User.find()
       .select("name walletAddress affiliateCode affiliateLink createdAt")
       .sort({ createdAt: -1 });
-    return res.json(users);
+    res.json(users);
   } catch (err) {
     console.error("Admin users error:", err);
     res.status(500).json({ error: "server error" });
   }
 });
 
-/**
- * CLICK TRACKER - /r/:code
- * 1) Records click
- * 2) Redirects to https://cr7react.vercel.app/signup?ref=<code>
+/** CLICK TRACKER:
+ *  Records click, then redirects to https://cr7react.vercel.app/signup?ref=<code>
  */
 app.get("/r/:code", async (req, res) => {
   try {
@@ -240,8 +206,7 @@ app.get("/r/:code", async (req, res) => {
     if (!user) return res.status(404).end();
 
     const ip =
-      (
-        req.headers["x-forwarded-for"]?.split(",")[0] ||
+      (req.headers["x-forwarded-for"]?.split(",")[0] ||
         req.socket.remoteAddress ||
         ""
       ).toString();
@@ -256,13 +221,12 @@ app.get("/r/:code", async (req, res) => {
       referrer: ref,
     });
 
-    // Always redirect to required frontend signup
+    // hard redirect target
     const target = new URL(FRONTEND_SIGNUP_PATH, FRONTEND_ORIGIN);
     target.searchParams.set("ref", code);
     return res.redirect(302, target.toString());
   } catch (err) {
     console.error("Click track error:", err);
-    // On error, still push to signup (without ref)
     return res.redirect(302, `${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}`);
   }
 });
@@ -270,6 +234,7 @@ app.get("/r/:code", async (req, res) => {
 app.get("/", (_req, res) => res.redirect("/public/index.html"));
 
 /* -------------------- START -------------------- */
-app.listen(PORT, () =>
-  console.log(`🚀 Affiliate system running on ${BASE_URL}`)
-);
+app.listen(PORT, () => {
+  console.log(`🚀 Affiliate system running on ${BASE_URL}`);
+  console.log(`🔗 Clicks redirect to ${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}?ref=<code>`);
+});
