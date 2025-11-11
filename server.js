@@ -213,6 +213,7 @@ app.get("/r/:code", async (req, res) => {
   }
 });
 
+
 app.get("/", (_req, res) => res.redirect("/public/index.html"));
 
 /* -------------------- START -------------------- */
