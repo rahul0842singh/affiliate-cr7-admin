@@ -4,7 +4,7 @@
  *  POST /api/signup {name,walletAddress}
  *  GET  /api/user/:walletAddress  -> fetch user + stats (never 404)
  *  GET  /api/admin/users          -> list all users (for dashboard)
- *  GET  /r/:code                  -> track clicks -> redirect to https://cr7react.vercel.app/signup?ref=code
+ *  GET  /r/:code                  -> track clicks -> redirect to https://cr7react.vercel.app/signup
  */
 
 require("dotenv").config();
@@ -18,7 +18,8 @@ const Click = require("./models/Click");
 const app = express();
 
 // ✅ Set your base URL (your backend host)
-const BASE_URL = process.env.BASE_URL || "https://affiliate-cr7-admin.onrender.com";
+const BASE_URL =
+  process.env.BASE_URL || "https://affiliate-cr7-admin.onrender.com";
 const PORT = process.env.PORT || 3000;
 
 /** Redirect target — always frontend signup page */
@@ -82,9 +83,13 @@ app.post("/api/signup", async (req, res) => {
   try {
     const { name, walletAddress } = req.body || {};
     if (!name || !walletAddress)
-      return res.status(400).json({ error: "name and walletAddress are required" });
+      return res
+        .status(400)
+        .json({ error: "name and walletAddress are required" });
 
-    const existing = await User.findOne({ walletAddress: walletAddress.trim() });
+    const existing = await User.findOne({
+      walletAddress: walletAddress.trim(),
+    });
     if (existing)
       return res.json({
         success: true,
@@ -143,7 +148,12 @@ app.get("/api/user/:walletAddress", async (req, res) => {
       ]),
       Click.aggregate([
         { $match: { userId: user._id } },
-        { $group: { _id: { $substr: ["$createdAt", 0, 10] }, c: { $sum: 1 } } },
+        {
+          $group: {
+            _id: { $substr: ["$createdAt", 0, 10] },
+            c: { $sum: 1 },
+          },
+        },
         { $project: { day: "$_id", c: 1, _id: 0 } },
         { $sort: { day: 1 } },
       ]),
@@ -179,7 +189,7 @@ app.get("/api/admin/users", async (_req, res) => {
 
 /**
  * CLICK TRACKER - /r/:code
- * Records click and redirects to https://cr7react.vercel.app/signup?ref=<code>
+ * Records click and redirects to https://cr7react.vercel.app/signup
  */
 app.get("/r/:code", async (req, res) => {
   try {
@@ -204,8 +214,8 @@ app.get("/r/:code", async (req, res) => {
       referrer: ref,
     });
 
-    // ✅ Always redirect to frontend signup page
-    const redirectUrl = `${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}?ref=${code}`;
+    // ✅ Redirect without ?ref=code
+    const redirectUrl = `${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}`;
     return res.redirect(302, redirectUrl);
   } catch (err) {
     console.error("Click track error:", err);
@@ -213,11 +223,10 @@ app.get("/r/:code", async (req, res) => {
   }
 });
 
-
 app.get("/", (_req, res) => res.redirect("/public/index.html"));
 
 /* -------------------- START -------------------- */
 app.listen(PORT, () => {
   console.log(`🚀 Server running at ${BASE_URL}`);
-  console.log(`🔗 Redirects to ${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}?ref=<code>`);
+  console.log(`🔗 Redirects to ${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}`);
 });
