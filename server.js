@@ -66,15 +66,18 @@ const MONGODB_URI =
 
 mongoose
   .connect(MONGODB_URI)
-  .then(() => console.log("✅ Mongo connected"))
+  .then(() => {
+    console.log("✅ Mongo connected:", MONGODB_URI);
+    console.log("🧠 Registered Models:", mongoose.modelNames());
+  })
   .catch((err) => {
-    console.error("❌ Mongo error:", err.message);
+    console.error("❌ Mongo connection error:", err.message);
     process.exit(1);
   });
 
 /* -------------------- ROUTES -------------------- */
 
-// Simple test route
+// Test route
 app.get("/api/test", (_req, res) => res.json({ ok: true }));
 
 /**
@@ -117,15 +120,16 @@ app.post("/api/signup", async (req, res) => {
       affiliateLink,
     });
 
+    console.log("✅ User created:", user._id, affiliateCode);
     return res.json({ success: true, user });
   } catch (err) {
-    console.error("Signup error:", err);
+    console.error("❌ Signup error:", err);
     res.status(500).json({ error: "server error" });
   }
 });
 
 /**
- * GET user + stats (total, unique IPs, clicks per day)
+ * GET user + stats
  */
 app.get("/api/user/:walletAddress", async (req, res) => {
   try {
@@ -169,7 +173,7 @@ app.get("/api/user/:walletAddress", async (req, res) => {
       stats: { totalClicks: total, uniqueClicks: unique, clicksByDay: byDay },
     });
   } catch (err) {
-    console.error("Fetch user error:", err);
+    console.error("❌ Fetch user error:", err);
     res.status(500).json({ error: "server error" });
   }
 });
@@ -184,26 +188,34 @@ app.get("/api/admin/users", async (_req, res) => {
       .sort({ createdAt: -1 });
     return res.json(users);
   } catch (err) {
-    console.error("Admin users error:", err);
+    console.error("❌ Admin users error:", err);
     res.status(500).json({ error: "server error" });
   }
 });
 
 /**
  * CLICK TRACKER - /r/:code
- * ✅ Counts every click (each hit = 1 record)
- * ✅ Redirects to frontend signup with ?ref=<code>
+ * ✅ Debug-enabled version (records each step)
  */
 app.get("/r/:code", async (req, res) => {
+  console.log("🟢 [START] /r/:code route hit");
+
   try {
     const { code } = req.params;
+    console.log("🔹 Affiliate Code:", code);
+
+    // 1️⃣ Find user by affiliate code
     const user = await User.findOne({ affiliateCode: code }).select("_id");
-
     if (!user) {
-      console.warn("⚠️ Unknown affiliate code:", code);
-      return res.redirect(302, `${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}`);
+      console.warn("⚠️ No user found for this affiliate code:", code);
+      return res.redirect(
+        302,
+        `${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}?ref=${code}`
+      );
     }
+    console.log("✅ Found User ID:", user._id.toString());
 
+    // 2️⃣ Extract visitor data
     const ip =
       (
         req.headers["x-forwarded-for"]?.split(",")[0] ||
@@ -213,21 +225,30 @@ app.get("/r/:code", async (req, res) => {
     const ua = req.headers["user-agent"] || "unknown";
     const ref = req.headers["referer"] || req.headers["referrer"] || "direct";
 
-    // ✅ Record every click (even same user/IP)
-    await Click.create({
-      userId: user._id,
-      affiliateCode: code,
-      ip,
-      userAgent: ua,
-      referrer: ref,
-    });
+    console.log("📡 Visitor IP:", ip);
+    console.log("📱 User-Agent:", ua);
+    console.log("↩️ Referrer:", ref);
 
-    console.log(`✅ Click recorded for ${code} from ${ip}`);
+    // 3️⃣ Attempt to create click record
+    try {
+      const click = await Click.create({
+        userId: user._id,
+        affiliateCode: code,
+        ip,
+        userAgent: ua,
+        referrer: ref,
+      });
+      console.log("✅ Click document created:", click._id.toString());
+    } catch (insertErr) {
+      console.error("❌ Click insert error:", insertErr.message);
+    }
 
+    // 4️⃣ Redirect
     const redirectUrl = `${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}?ref=${code}`;
+    console.log("➡️ Redirecting to:", redirectUrl);
     return res.redirect(302, redirectUrl);
   } catch (err) {
-    console.error("Click track error:", err);
+    console.error("❌ [FATAL] Click tracking failed:", err);
     return res.redirect(
       302,
       `${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}`
@@ -235,7 +256,7 @@ app.get("/r/:code", async (req, res) => {
   }
 });
 
-// Root redirect to public folder
+/* -------------------- ROOT -------------------- */
 app.get("/", (_req, res) => res.redirect("/public/index.html"));
 
 /* -------------------- START -------------------- */
