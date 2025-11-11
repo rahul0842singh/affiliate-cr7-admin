@@ -107,7 +107,7 @@ app.post("/api/signup", async (req, res) => {
     }
 
     // ✅ Use backend route for tracking clicks
-    const affiliateLink = `https://cr7react.vercel.app/r/${affiliateCode}`;
+    const affiliateLink = `${BASE_URL}/r/${affiliateCode}`;
 
     const user = await User.create({
       name: name.trim(),
