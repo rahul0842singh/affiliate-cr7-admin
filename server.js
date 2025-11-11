@@ -124,6 +124,52 @@ app.post("/api/signup", async (req, res) => {
 });
 
 /**
+ * GET user + stats by wallet address
+ */
+app.get("/api/user/:walletAddress", async (req, res) => {
+  try {
+    const wallet = req.params.walletAddress.trim();
+    const user = await User.findOne({ walletAddress: wallet });
+
+    // ✅ Always return JSON instead of 404
+    if (!user) {
+      return res.json({
+        success: false,
+        message: "User not found",
+        user: null,
+        stats: { totalClicks: 0, uniqueClicks: 0, clicksByDay: [] },
+      });
+    }
+
+    const [total, uniqueAgg, byDay] = await Promise.all([
+      Click.countDocuments({ userId: user._id }),
+      Click.aggregate([
+        { $match: { userId: user._id } },
+        { $group: { _id: "$ip" } },
+        { $count: "unique" },
+      ]),
+      Click.aggregate([
+        { $match: { userId: user._id } },
+        { $group: { _id: { $substr: ["$createdAt", 0, 10] }, c: { $sum: 1 } } },
+        { $project: { day: "$_id", c: 1, _id: 0 } },
+        { $sort: { day: 1 } },
+      ]),
+    ]);
+
+    const unique = uniqueAgg.length ? uniqueAgg[0].unique : 0;
+    return res.json({
+      success: true,
+      user,
+      stats: { totalClicks: total, uniqueClicks: unique, clicksByDay: byDay },
+    });
+  } catch (err) {
+    console.error("Fetch user error:", err);
+    res.status(500).json({ error: "server error" });
+  }
+});
+
+
+/**
  * GET user + stats
  */
 app.get("/api/stats/:code", async (req, res) => {
