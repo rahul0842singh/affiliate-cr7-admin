@@ -20,12 +20,13 @@ const PORT = process.env.PORT || 3000;
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 
 /**
- * Where to send users after click.
+ * FRONTEND CONFIG
  * Example .env:
- *   FRONTEND_ORIGIN=http://localhost:5173
+ *   FRONTEND_ORIGIN=https://cr7react.vercel.app
  *   FRONTEND_SIGNUP_PATH=/signup
  */
-const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:5173";
+const FRONTEND_ORIGIN =
+  process.env.FRONTEND_ORIGIN || "https://cr7react.vercel.app";
 const FRONTEND_SIGNUP_PATH = process.env.FRONTEND_SIGNUP_PATH || "/signup";
 
 const AFF_LEN = parseInt(process.env.AFF_LEN || "9", 10);
@@ -36,13 +37,13 @@ app.use(helmet());
 app.use(express.json());
 app.use("/public", express.static("public"));
 
-// Simple logger
+// Simple request logger
 app.use((req, _res, next) => {
   console.log(`[REQ] ${req.method} ${req.originalUrl}`);
   next();
 });
 
-/* -------------------- CORS (localhost + prod) -------------------- */
+/* -------------------- CORS -------------------- */
 const allowedOrigins = [
   "http://localhost:5173",
   "http://127.0.0.1:5173",
@@ -65,7 +66,8 @@ app.use((req, res, next) => {
 });
 
 /* -------------------- MONGO -------------------- */
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/affiliate_mongo";
+const MONGODB_URI =
+  process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/affiliate_mongo";
 mongoose
   .connect(MONGODB_URI)
   .then(() => console.log("✅ Mongo connected"))
@@ -74,14 +76,12 @@ mongoose
     process.exit(1);
   });
 
-/* -------------------- MODELS (imported) -------------------- */
-// User: { name, walletAddress, affiliateCode, affiliateLink, createdAt }
-// Click: { userId, affiliateCode, ip, userAgent, referrer, createdAt }
-
 /* -------------------- ROUTES -------------------- */
 app.get("/api/test", (_req, res) => res.json({ ok: true }));
 
-// Signup — only name + walletAddress
+/**
+ * SIGNUP - Save name + wallet, generate affiliate link (Frontend URL)
+ */
 app.post("/api/signup", async (req, res) => {
   try {
     const { name, walletAddress } = req.body || {};
@@ -96,7 +96,7 @@ app.post("/api/signup", async (req, res) => {
         user: existing,
       });
 
-    // generate unique affiliate code
+    // Generate unique affiliate code
     let affiliateCode;
     while (true) {
       affiliateCode = nanoid();
@@ -104,7 +104,9 @@ app.post("/api/signup", async (req, res) => {
       if (!dup) break;
     }
 
-    const affiliateLink = `${BASE_URL}/r/${affiliateCode}`;
+    // ✅ Use FRONTEND URL for affiliate link (no localhost)
+    const affiliateLink = `${FRONTEND_ORIGIN}/signup?ref=${affiliateCode}`;
+
     const user = await User.create({
       name: name.trim(),
       walletAddress: walletAddress.trim(),
@@ -119,7 +121,9 @@ app.post("/api/signup", async (req, res) => {
   }
 });
 
-// Fetch user + stats by wallet address
+/**
+ * GET user + stats
+ */
 app.get("/api/user/:walletAddress", async (req, res) => {
   try {
     const wallet = req.params.walletAddress.trim();
@@ -153,7 +157,9 @@ app.get("/api/user/:walletAddress", async (req, res) => {
   }
 });
 
-// Admin route — list all users (optional)
+/**
+ * ADMIN - List all users
+ */
 app.get("/api/admin/users", async (_req, res) => {
   try {
     const users = await User.find()
@@ -166,14 +172,16 @@ app.get("/api/admin/users", async (_req, res) => {
   }
 });
 
-// Redirect / track clicks -> redirect to FRONTEND_SIGNUP_URL?ref=<code>
+/**
+ * CLICK TRACKER - /r/:code
+ * Records click + redirects to frontend signup page
+ */
 app.get("/r/:code", async (req, res) => {
   try {
     const { code } = req.params;
     const user = await User.findOne({ affiliateCode: code }).select("_id");
-    if (!user) return res.status(404).end(); // silent for invalid link
+    if (!user) return res.status(404).end();
 
-    // record click
     const ip =
       (
         req.headers["x-forwarded-for"]?.split(",")[0] ||
@@ -191,14 +199,13 @@ app.get("/r/:code", async (req, res) => {
       referrer: ref,
     });
 
-    // Build target: e.g. http://localhost:5173/signup?ref=CODE
+    // ✅ Redirect user to your production signup page with ref param
     const target = new URL(FRONTEND_SIGNUP_PATH, FRONTEND_ORIGIN);
     target.searchParams.set("ref", code);
 
     return res.redirect(302, target.toString());
   } catch (err) {
     console.error("Click track error:", err);
-    // On error, still send them to signup (without ref)
     return res.redirect(302, `${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}`);
   }
 });
