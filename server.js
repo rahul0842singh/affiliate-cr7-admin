@@ -1,6 +1,7 @@
 /**
  * Simple Affiliate System - Express + MongoDB (Wallet-Only Version)
- * Updated for https://cr7officialsol.com
+ * Updated for new domain: https://cr7-admin.onrender.com
+ * Frontend: https://cr7officialsol.com
  */
 
 require("dotenv").config();
@@ -14,12 +15,12 @@ const Click = require("./models/Click");
 const app = express();
 
 /* -------------------- CONSTANTS -------------------- */
-// ✅ Production frontend domain
+// ✅ Frontend domain
 const FRONTEND_ORIGIN = "https://cr7officialsol.com";
-// ✅ Signup page (adjust if route differs)
+// ✅ Signup page (adjust if needed)
 const FRONTEND_SIGNUP_PATH = "/signup";
-// ✅ Production backend base domain
-const BASE_URL = "https://affiliate-cr7-admin.onrender.com"; // backend host
+// ✅ Backend base domain (now without "affiliate")
+const BASE_URL = "https://cr7-admin.onrender.com";
 
 const AFF_LEN = parseInt(process.env.AFF_LEN || "9", 10);
 const nanoid = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", AFF_LEN);
@@ -99,7 +100,7 @@ app.post("/api/signup", async (req, res) => {
       if (!dup) break;
     }
 
-    // ✅ Always use production backend for link generation
+    // ✅ Use new backend domain for generated link
     const affiliateLink = `${BASE_URL}/r/${affiliateCode}`;
 
     const user = await User.create({
@@ -156,6 +157,7 @@ app.get("/api/track/:code", async (req, res) => {
 /**
  * CLICK TRACKER - /r/:code
  * ✅ Redirects to https://cr7officialsol.com/signup?ref=code
+ * ✅ Logs click before redirecting
  */
 app.get("/r/:code", async (req, res) => {
   console.log("🟢 [START] /r/:code route hit");
