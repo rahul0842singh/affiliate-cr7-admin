@@ -1,9 +1,15 @@
 /**
- * CR7 Admin Server (Affiliate link points directly to frontend signup)
- * -------------------------------------------------------------------
- * Frontend: https://cr7officialsol.com
- * affiliateLink returned by /api/signup is ALWAYS: https://cr7officialsol.com/signup
- * (No Render URL, no /r/:code redirect used)
+ * CR7 Admin Redirect + Tracking Server (Direct Signup Version)
+ * -------------------------------------------------------------
+ * Each affiliate gets a link:
+ *   https://cr7-admin.onrender.com/r/:code
+ *
+ * ✅ When someone opens it:
+ *    - Logs a click for that affiliate
+ *    - Redirects instantly to https://cr7officialsol.com/signup
+ *
+ * ✅ /api/signup returns user data with affiliateLink = https://cr7-admin.onrender.com/r/:code
+ * ✅ /api/user/:walletAddress returns total + unique clicks
  */
 
 require("dotenv").config();
@@ -17,11 +23,9 @@ const Click = require("./models/Click");
 const app = express();
 
 /* -------------------- CONFIG -------------------- */
+const FRONTEND_SIGNUP_URL = "https://cr7officialsol.com/signup";
 const FRONTEND_ORIGIN = "https://cr7officialsol.com";
-const FRONTEND_SIGNUP_PATH = "/signup";
-const FRONTEND_SIGNUP_URL = `${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}`;
-
-const BASE_URL = "https://cr7-admin.onrender.com"; // informational only; not used for affiliateLink
+const BASE_URL = "https://cr7-admin.onrender.com";
 const PORT = process.env.PORT || 3000;
 
 const AFF_LEN = parseInt(process.env.AFF_LEN || "9", 10);
@@ -69,8 +73,8 @@ app.get("/api/test", (_req, res) => res.json({ ok: true }));
 
 /**
  * SIGNUP - Create user and return affiliate link
- * ✅ affiliateLink is ALWAYS https://cr7officialsol.com/signup (no Render URL)
- * (We still store affiliateCode in case you want to use it later.)
+ * ✅ Returns a unique link: https://cr7-admin.onrender.com/r/:code
+ * Opening that link → logs click + redirects to signup page.
  */
 app.post("/api/signup", async (req, res) => {
   try {
@@ -81,18 +85,9 @@ app.post("/api/signup", async (req, res) => {
         .json({ error: "name and walletAddress are required" });
 
     const existing = await User.findOne({ walletAddress: walletAddress.trim() });
-    if (existing) {
-      // overwrite returned link to the fixed frontend URL
-      const existingUser = existing.toObject();
-      existingUser.affiliateLink = FRONTEND_SIGNUP_URL;
-      return res.json({
-        success: true,
-        message: "Wallet already registered",
-        user: existingUser,
-      });
-    }
+    if (existing) return res.json({ success: true, user: existing });
 
-    // Keep an affiliateCode stored if you want future tracking — not used in the link
+    // Generate unique affiliate code
     let affiliateCode;
     while (true) {
       affiliateCode = nanoid();
@@ -100,17 +95,16 @@ app.post("/api/signup", async (req, res) => {
       if (!dup) break;
     }
 
-    // 👉 The ONLY link we return
-    const affiliateLink = FRONTEND_SIGNUP_URL;
+    const affiliateLink = `${BASE_URL}/r/${affiliateCode}`;
 
     const user = await User.create({
       name: name.trim(),
       walletAddress: walletAddress.trim(),
       affiliateCode,
-      affiliateLink, // stored for consistency, equals frontend signup URL
+      affiliateLink,
     });
 
-    // Return the user with affiliateLink = https://cr7officialsol.com/signup
+    console.log("✅ User created:", user._id, affiliateCode);
     return res.json({ success: true, user });
   } catch (err) {
     console.error("❌ Signup error:", err);
@@ -119,15 +113,16 @@ app.post("/api/signup", async (req, res) => {
 });
 
 /**
- * Optional tracking endpoint (kept if you want to call it from frontend manually)
- * Not used by the link itself anymore.
+ * REDIRECT ROUTE
+ * ✅ Logs click in MongoDB
+ * ✅ Redirects instantly to https://cr7officialsol.com/signup
  */
-app.get("/api/track/:code", async (req, res) => {
+app.get("/r/:code", async (req, res) => {
+  const { code } = req.params;
+  const redirectUrl = FRONTEND_SIGNUP_URL;
+
   try {
-    const { code } = req.params;
     const user = await User.findOne({ affiliateCode: code }).select("_id");
-    if (!user)
-      return res.status(404).json({ success: false, message: "Invalid code" });
 
     const ip =
       (
@@ -138,23 +133,30 @@ app.get("/api/track/:code", async (req, res) => {
     const ua = req.headers["user-agent"] || "unknown";
     const ref = req.headers["referer"] || req.headers["referrer"] || "direct";
 
-    await Click.create({
-      userId: user._id,
-      affiliateCode: code,
-      ip,
-      userAgent: ua,
-      referrer: ref,
-    });
+    if (user) {
+      await Click.create({
+        userId: user._id,
+        affiliateCode: code,
+        ip,
+        userAgent: ua,
+        referrer: ref,
+      });
+      console.log(`✅ Click logged for code: ${code}`);
+    } else {
+      console.warn(`⚠️ Invalid affiliate code: ${code}`);
+    }
 
-    return res.json({ success: true, message: "Click recorded" });
+    // Always redirect to signup page
+    return res.redirect(302, redirectUrl);
   } catch (err) {
-    console.error("❌ Tracking error:", err);
-    res.status(500).json({ success: false, error: "server error" });
+    console.error("❌ Redirect error:", err);
+    return res.redirect(302, redirectUrl);
   }
 });
 
 /**
  * USER STATS
+ * Returns total, unique, and daily clicks.
  */
 app.get("/api/user/:walletAddress", async (req, res) => {
   try {
@@ -201,17 +203,14 @@ app.get("/api/user/:walletAddress", async (req, res) => {
   }
 });
 
-/* -------------------- REMOVE /r ROUTES (no longer used) -------------------- */
-/* Intentionally no /r or /r/* endpoints; the link never points to Render.    */
-
-/* -------------------- ROOT -------------------- */
-app.get("/", (_req, res) => {
-  // optional: simple message to show service is up
-  res.json({ ok: true, message: "CR7 admin API online" });
+/* -------------------- FALLBACK -------------------- */
+app.get("*", (req, res) => {
+  console.log("🔸 Fallback redirect:", req.originalUrl);
+  return res.redirect(302, FRONTEND_SIGNUP_URL);
 });
 
 /* -------------------- START SERVER -------------------- */
 app.listen(PORT, () => {
   console.log(`🚀 Server running at ${BASE_URL}`);
-  console.log(`🔗 Affiliate links will be: ${FRONTEND_SIGNUP_URL}`);
+  console.log(`🌍 Affiliate redirects → ${FRONTEND_SIGNUP_URL}`);
 });
