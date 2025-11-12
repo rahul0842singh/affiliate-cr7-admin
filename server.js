@@ -1,7 +1,7 @@
 /**
  * Simple Affiliate System - Express + MongoDB (Wallet-Only Version)
- * Updated for new domain: https://cr7-admin.onrender.com
  * Frontend: https://cr7officialsol.com
+ * Affiliate links: https://cr7-admin.onrender.com/r/:code  -> logs click, then redirects to /signup
  */
 
 require("dotenv").config();
@@ -17,9 +17,9 @@ const app = express();
 /* -------------------- CONSTANTS -------------------- */
 // ✅ Frontend domain
 const FRONTEND_ORIGIN = "https://cr7officialsol.com";
-// ✅ Signup page (adjust if needed)
+// ✅ Signup page (fixed target without query string)
 const FRONTEND_SIGNUP_PATH = "/signup";
-// ✅ Backend base domain (now without "affiliate")
+// ✅ Backend base domain (shorter, without "affiliate")
 const BASE_URL = "https://cr7-admin.onrender.com";
 
 const AFF_LEN = parseInt(process.env.AFF_LEN || "9", 10);
@@ -120,6 +120,7 @@ app.post("/api/signup", async (req, res) => {
 
 /**
  * FRONTEND TRACKER - /api/track/:code
+ * (For optional silent tracking from frontend if needed)
  */
 app.get("/api/track/:code", async (req, res) => {
   console.log("🟢 [TRACK] /api/track/:code hit");
@@ -156,13 +157,14 @@ app.get("/api/track/:code", async (req, res) => {
 
 /**
  * CLICK TRACKER - /r/:code
- * ✅ Redirects to https://cr7officialsol.com/signup?ref=code
- * ✅ Logs click before redirecting
+ * ✅ Logs the click (even if code is invalid we still redirect)
+ * ✅ Always redirects to https://cr7officialsol.com/signup  (no query string)
  */
 app.get("/r/:code", async (req, res) => {
   console.log("🟢 [START] /r/:code route hit");
   try {
     const { code } = req.params;
+
     const user = await User.findOne({ affiliateCode: code }).select("_id");
     const ip =
       (
@@ -181,12 +183,13 @@ app.get("/r/:code", async (req, res) => {
         userAgent: ua,
         referrer: ref,
       });
-      console.log("✅ Click recorded:", code);
+      console.log("✅ Click recorded for code:", code);
     } else {
-      console.warn("⚠️ Invalid affiliate code:", code);
+      console.warn("⚠️ Invalid affiliate code (redirecting anyway):", code);
     }
 
-    const redirectUrl = `${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}?ref=${code}`;
+    // ✅ Fixed redirect without ?ref=
+    const redirectUrl = `${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}`;
     return res.redirect(302, redirectUrl);
   } catch (err) {
     console.error("❌ Redirect error:", err);
@@ -249,5 +252,5 @@ app.get("/", (_req, res) => res.redirect("/public/index.html"));
 app.listen(PORT, () => {
   console.log(`🚀 Server running at ${BASE_URL}`);
   console.log(`🌍 Frontend: ${FRONTEND_ORIGIN}`);
-  console.log(`🔗 Redirect target: ${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}`);
+  console.log(`🔗 Redirect target: ${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH} (no query)`);
 });
