@@ -1,9 +1,9 @@
 /**
- * CR7 Admin Redirect Server (Final)
- * ---------------------------------
+ * CR7 Admin Server (Affiliate link points directly to frontend signup)
+ * -------------------------------------------------------------------
  * Frontend: https://cr7officialsol.com
- * Any /r or /r/... request instantly redirects to https://cr7officialsol.com/signup
- * Other API routes (/api/...) remain functional.
+ * affiliateLink returned by /api/signup is ALWAYS: https://cr7officialsol.com/signup
+ * (No Render URL, no /r/:code redirect used)
  */
 
 require("dotenv").config();
@@ -17,24 +17,17 @@ const Click = require("./models/Click");
 const app = express();
 
 /* -------------------- CONFIG -------------------- */
-const FRONTEND_SIGNUP_URL = "https://cr7officialsol.com/signup";
 const FRONTEND_ORIGIN = "https://cr7officialsol.com";
-const BASE_URL = "https://cr7-admin.onrender.com";
+const FRONTEND_SIGNUP_PATH = "/signup";
+const FRONTEND_SIGNUP_URL = `${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}`;
+
+const BASE_URL = "https://cr7-admin.onrender.com"; // informational only; not used for affiliateLink
 const PORT = process.env.PORT || 3000;
 
 const AFF_LEN = parseInt(process.env.AFF_LEN || "9", 10);
 const nanoid = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", AFF_LEN);
 
-/* =========================================================
-   🚀  HARD REDIRECT ROUTE  —  put before any middleware
-   ========================================================= */
-app.get(/^\/r(\/.*)?$/, (req, res) => {
-  console.log("🟢 Hard redirect from", req.originalUrl, "→", FRONTEND_SIGNUP_URL);
-  res.setHeader("Cache-Control", "no-store");
-  return res.redirect(302, FRONTEND_SIGNUP_URL);
-});
-
-/* -------------------- SECURITY & BASICS -------------------- */
+/* -------------------- MIDDLEWARE -------------------- */
 app.disable("x-powered-by");
 app.use(helmet());
 app.use(express.json());
@@ -69,12 +62,16 @@ mongoose
   .then(() => console.log("✅ Mongo connected:", MONGODB_URI))
   .catch((err) => console.error("❌ Mongo connection error:", err.message));
 
-/* -------------------- API ROUTES -------------------- */
+/* -------------------- ROUTES -------------------- */
 
 // Health check
 app.get("/api/test", (_req, res) => res.json({ ok: true }));
 
-// Signup route
+/**
+ * SIGNUP - Create user and return affiliate link
+ * ✅ affiliateLink is ALWAYS https://cr7officialsol.com/signup (no Render URL)
+ * (We still store affiliateCode in case you want to use it later.)
+ */
 app.post("/api/signup", async (req, res) => {
   try {
     const { name, walletAddress } = req.body || {};
@@ -84,14 +81,18 @@ app.post("/api/signup", async (req, res) => {
         .json({ error: "name and walletAddress are required" });
 
     const existing = await User.findOne({ walletAddress: walletAddress.trim() });
-    if (existing)
+    if (existing) {
+      // overwrite returned link to the fixed frontend URL
+      const existingUser = existing.toObject();
+      existingUser.affiliateLink = FRONTEND_SIGNUP_URL;
       return res.json({
         success: true,
         message: "Wallet already registered",
-        user: existing,
+        user: existingUser,
       });
+    }
 
-    // Generate unique affiliate code
+    // Keep an affiliateCode stored if you want future tracking — not used in the link
     let affiliateCode;
     while (true) {
       affiliateCode = nanoid();
@@ -99,16 +100,17 @@ app.post("/api/signup", async (req, res) => {
       if (!dup) break;
     }
 
-    const affiliateLink = `${BASE_URL}/r/${affiliateCode}`;
+    // 👉 The ONLY link we return
+    const affiliateLink = FRONTEND_SIGNUP_URL;
 
     const user = await User.create({
       name: name.trim(),
       walletAddress: walletAddress.trim(),
       affiliateCode,
-      affiliateLink,
+      affiliateLink, // stored for consistency, equals frontend signup URL
     });
 
-    console.log("✅ User created:", user._id, affiliateCode);
+    // Return the user with affiliateLink = https://cr7officialsol.com/signup
     return res.json({ success: true, user });
   } catch (err) {
     console.error("❌ Signup error:", err);
@@ -116,7 +118,10 @@ app.post("/api/signup", async (req, res) => {
   }
 });
 
-// Optional tracking endpoint
+/**
+ * Optional tracking endpoint (kept if you want to call it from frontend manually)
+ * Not used by the link itself anymore.
+ */
 app.get("/api/track/:code", async (req, res) => {
   try {
     const { code } = req.params;
@@ -131,12 +136,14 @@ app.get("/api/track/:code", async (req, res) => {
         ""
       ).toString();
     const ua = req.headers["user-agent"] || "unknown";
+    const ref = req.headers["referer"] || req.headers["referrer"] || "direct";
 
     await Click.create({
       userId: user._id,
       affiliateCode: code,
       ip,
       userAgent: ua,
+      referrer: ref,
     });
 
     return res.json({ success: true, message: "Click recorded" });
@@ -146,7 +153,9 @@ app.get("/api/track/:code", async (req, res) => {
   }
 });
 
-// Stats endpoint
+/**
+ * USER STATS
+ */
 app.get("/api/user/:walletAddress", async (req, res) => {
   try {
     const wallet = req.params.walletAddress.trim();
@@ -192,17 +201,17 @@ app.get("/api/user/:walletAddress", async (req, res) => {
   }
 });
 
-/* =========================================================
-   🔸 FALLBACK REDIRECT  —  after all APIs
-   ========================================================= */
-app.get("*", (req, res) => {
-  console.log("🔸 Fallback redirect:", req.originalUrl);
-  res.setHeader("Cache-Control", "no-store");
-  return res.redirect(302, FRONTEND_SIGNUP_URL);
+/* -------------------- REMOVE /r ROUTES (no longer used) -------------------- */
+/* Intentionally no /r or /r/* endpoints; the link never points to Render.    */
+
+/* -------------------- ROOT -------------------- */
+app.get("/", (_req, res) => {
+  // optional: simple message to show service is up
+  res.json({ ok: true, message: "CR7 admin API online" });
 });
 
 /* -------------------- START SERVER -------------------- */
 app.listen(PORT, () => {
   console.log(`🚀 Server running at ${BASE_URL}`);
-  console.log(`🌍 Redirect target: ${FRONTEND_SIGNUP_URL}`);
+  console.log(`🔗 Affiliate links will be: ${FRONTEND_SIGNUP_URL}`);
 });
