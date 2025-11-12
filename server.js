@@ -1,7 +1,10 @@
 /**
  * CR7 Admin Redirect Server
+ * -------------------------
  * Frontend: https://cr7officialsol.com
  * Any /r or /r/... request instantly redirects to https://cr7officialsol.com/signup
+ * 
+ * Other API routes (signup, track, stats) remain functional.
  */
 
 require("dotenv").config();
@@ -49,7 +52,7 @@ app.use((req, res, next) => {
   return res.status(403).json({ error: "CORS blocked" });
 });
 
-/* -------------------- MONGO (for API only) -------------------- */
+/* -------------------- MONGO CONNECTION -------------------- */
 const MONGODB_URI =
   process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/affiliate_mongo";
 
@@ -58,7 +61,7 @@ mongoose
   .then(() => console.log("✅ Mongo connected:", MONGODB_URI))
   .catch((err) => console.error("❌ Mongo connection error:", err.message));
 
-/* -------------------- API ROUTES (unchanged) -------------------- */
+/* -------------------- API ROUTES -------------------- */
 
 // Health check
 app.get("/api/test", (_req, res) => res.json({ ok: true }));
@@ -80,6 +83,7 @@ app.post("/api/signup", async (req, res) => {
         user: existing,
       });
 
+    // Generate unique affiliate code
     let affiliateCode;
     while (true) {
       affiliateCode = nanoid();
@@ -96,6 +100,7 @@ app.post("/api/signup", async (req, res) => {
       affiliateLink,
     });
 
+    console.log("✅ User created:", user._id, affiliateCode);
     return res.json({ success: true, user });
   } catch (err) {
     console.error("❌ Signup error:", err);
@@ -181,16 +186,16 @@ app.get("/api/user/:walletAddress", async (req, res) => {
 
 /* -------------------- UNIVERSAL REDIRECT -------------------- */
 
-// Handle /r and all nested routes
+// ✅ Handles /r and any nested route like /r/abc123, /r/test/xyz
 app.get(/^\/r(\/.*)?$/, (req, res) => {
-  console.log("🟢 Hard redirect from", req.originalUrl, "→", FRONTEND_SIGNUP_URL);
+  console.log("🟢 Redirecting:", req.originalUrl, "→", FRONTEND_SIGNUP_URL);
   res.setHeader("Cache-Control", "no-store");
   return res.redirect(302, FRONTEND_SIGNUP_URL);
 });
 
-// Optional: also redirect root and unknown paths to signup
+// ✅ Optional fallback to redirect *all other* unknown routes
 app.get("*", (req, res) => {
-  console.log("🔸 Fallback redirect from", req.originalUrl);
+  console.log("🔸 Fallback redirect:", req.originalUrl);
   res.setHeader("Cache-Control", "no-store");
   return res.redirect(302, FRONTEND_SIGNUP_URL);
 });
