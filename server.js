@@ -1,7 +1,7 @@
 /**
  * Simple Affiliate System - Express + MongoDB (Wallet-Only Version)
  * Frontend: https://cr7officialsol.com
- * Affiliate links: https://cr7-admin.onrender.com/r/:code  -> logs click, then redirects to /signup
+ * Affiliate links: https://cr7-admin.onrender.com/r/:code  -> ALWAYS redirects to /signup
  */
 
 require("dotenv").config();
@@ -9,16 +9,20 @@ const express = require("express");
 const helmet = require("helmet");
 const mongoose = require("mongoose");
 const { customAlphabet } = require("nanoid");
-const User = require("./models/User");
-const Click = require("./models/Click");
+const User = require("./models/User");   // keep if you still use /api/signup or /api/user
+const Click = require("./models/Click"); // optional; not used by redirect anymore
 
 const app = express();
 
 /* -------------------- CONSTANTS -------------------- */
-const FRONTEND_ORIGIN = "https://cr7officialsol.com"; // Redirect target
+// Frontend target for ALL /r/* redirects
+const FRONTEND_ORIGIN = "https://cr7officialsol.com";
 const FRONTEND_SIGNUP_PATH = "/signup";
+
+// Backend base domain (informational)
 const BASE_URL = "https://cr7-admin.onrender.com";
 
+// For signup route (unchanged)
 const AFF_LEN = parseInt(process.env.AFF_LEN || "9", 10);
 const nanoid = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", AFF_LEN);
 const PORT = process.env.PORT || 3000;
@@ -50,6 +54,8 @@ app.use((req, res, next) => {
 });
 
 /* -------------------- MONGO CONNECTION -------------------- */
+/* Keep this if you still use /api/signup or /api/user.
+   If you truly don't need DB anywhere, you can remove this whole block and the model imports. */
 const MONGODB_URI =
   process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/affiliate_mongo";
 
@@ -57,11 +63,12 @@ mongoose
   .connect(MONGODB_URI)
   .then(() => {
     console.log("✅ Mongo connected:", MONGODB_URI);
-    console.log("🧠 Models:", mongoose.modelNames());
+    console.log("🧠 Registered Models:", mongoose.modelNames());
   })
   .catch((err) => {
     console.error("❌ Mongo connection error:", err.message);
-    process.exit(1);
+    // If DB isn't needed at all, you could choose NOT to exit here
+    // process.exit(1);
   });
 
 /* -------------------- ROUTES -------------------- */
@@ -70,7 +77,8 @@ mongoose
 app.get("/api/test", (_req, res) => res.json({ ok: true }));
 
 /**
- * SIGNUP - Create user and generate affiliate link
+ * SIGNUP - Create user and generate affiliate link (unchanged)
+ * If you don't need signup, you can remove this and the model imports.
  */
 app.post("/api/signup", async (req, res) => {
   try {
@@ -88,7 +96,7 @@ app.post("/api/signup", async (req, res) => {
         user: existing,
       });
 
-    // Generate unique affiliate code
+    // Generate unique affiliate code for future use (even though /r/* now always redirects)
     let affiliateCode;
     while (true) {
       affiliateCode = nanoid();
@@ -96,7 +104,6 @@ app.post("/api/signup", async (req, res) => {
       if (!dup) break;
     }
 
-    // ✅ Use backend domain for generated link
     const affiliateLink = `${BASE_URL}/r/${affiliateCode}`;
 
     const user = await User.create({
@@ -115,87 +122,8 @@ app.post("/api/signup", async (req, res) => {
 });
 
 /**
- * FRONTEND TRACKER (optional)
- * /api/track/:code — can be used by frontend if needed
- */
-app.get("/api/track/:code", async (req, res) => {
-  try {
-    const { code } = req.params;
-    const user = await User.findOne({ affiliateCode: code }).select("_id");
-    if (!user)
-      return res.status(404).json({ success: false, message: "Invalid code" });
-
-    const ip =
-      (
-        req.headers["x-forwarded-for"]?.split(",")[0] ||
-        req.socket.remoteAddress ||
-        ""
-      ).toString();
-    const ua = req.headers["user-agent"] || "unknown";
-    const ref = req.headers["referer"] || req.headers["referrer"] || "direct";
-
-    await Click.create({
-      userId: user._id,
-      affiliateCode: code,
-      ip,
-      userAgent: ua,
-      referrer: ref,
-    });
-
-    console.log(`✅ Frontend click logged for code: ${code}`);
-    return res.json({ success: true, message: "Click recorded" });
-  } catch (err) {
-    console.error("❌ Tracking error:", err);
-    res.status(500).json({ success: false, error: "server error" });
-  }
-});
-
-/**
- * MAIN AFFILIATE REDIRECTOR
- * ✅ Logs click in MongoDB
- * ✅ Redirects to https://cr7officialsol.com/signup (no query params)
- */
-app.get("/r/:code", async (req, res) => {
-  console.log("🟢 [REDIRECT] /r/:code hit:", req.params.code);
-  const { code } = req.params;
-  const redirectUrl = `${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}`;
-
-  try {
-    const user = await User.findOne({ affiliateCode: code }).select("_id");
-
-    const ip =
-      (
-        req.headers["x-forwarded-for"]?.split(",")[0] ||
-        req.socket.remoteAddress ||
-        ""
-      ).toString();
-    const ua = req.headers["user-agent"] || "unknown";
-    const ref = req.headers["referer"] || req.headers["referrer"] || "direct";
-
-    // Log click (even if code invalid, we still redirect)
-    if (user) {
-      await Click.create({
-        userId: user._id,
-        affiliateCode: code,
-        ip,
-        userAgent: ua,
-        referrer: ref,
-      });
-      console.log(`✅ Click recorded for ${code}`);
-    } else {
-      console.warn(`⚠️ Invalid affiliate code: ${code}`);
-    }
-
-    // Redirect to signup
-    return res.redirect(302, redirectUrl);
-  } catch (err) {
-    console.error("❌ Redirect error:", err);
-    return res.redirect(302, redirectUrl);
-  }
-});
-
-/**
- * USER STATS
+ * USER STATS (optional; unchanged)
+ * Keep if your dashboard uses it. Otherwise safe to remove.
  */
 app.get("/api/user/:walletAddress", async (req, res) => {
   try {
@@ -210,6 +138,7 @@ app.get("/api/user/:walletAddress", async (req, res) => {
         stats: { totalClicks: 0, uniqueClicks: 0, clicksByDay: [] },
       });
 
+    // If you don't track clicks anymore, these will just be zero unless you log elsewhere.
     const [total, uniqueAgg, byDay] = await Promise.all([
       Click.countDocuments({ userId: user._id }),
       Click.aggregate([
@@ -242,6 +171,22 @@ app.get("/api/user/:walletAddress", async (req, res) => {
   }
 });
 
+/* -------------------- UNIVERSAL REDIRECT -------------------- */
+/* Always redirect ANYTHING under /r or /r/... to the signup page. */
+const SIGNUP_REDIRECT = `${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}`;
+
+// Match /r exactly
+app.get("/r", (req, res) => {
+  console.log("🟢 Redirect /r ->", SIGNUP_REDIRECT);
+  return res.redirect(302, SIGNUP_REDIRECT);
+});
+
+// Match /r/anything (including nested paths)
+app.get("/r/:rest(*)", (req, res) => {
+  console.log("🟢 Redirect /r/* ->", req.originalUrl, "->", SIGNUP_REDIRECT);
+  return res.redirect(302, SIGNUP_REDIRECT);
+});
+
 /* -------------------- ROOT -------------------- */
 app.get("/", (_req, res) => res.redirect("/public/index.html"));
 
@@ -249,7 +194,5 @@ app.get("/", (_req, res) => res.redirect("/public/index.html"));
 app.listen(PORT, () => {
   console.log(`🚀 Server running at ${BASE_URL}`);
   console.log(`🌍 Frontend: ${FRONTEND_ORIGIN}`);
-  console.log(
-    `🔗 Redirect target: ${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH} (no query)`
-  );
+  console.log(`🔗 Redirect target: ${SIGNUP_REDIRECT}`);
 });
