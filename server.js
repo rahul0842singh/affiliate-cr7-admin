@@ -1,11 +1,12 @@
 /**
- * CR7 Admin Server — Direct Signup Link + Click Tracking
- * ------------------------------------------------------
- * Each user gets: https://cr7officialsol.com/signup?ref=:code
- * When opened:
- *   - Frontend detects ?ref=:code
- *   - Calls /api/track/:code to record the click
- *   - User stays on signup page
+ * CR7 Admin — Frontend-only affiliate link + click tracking
+ * ---------------------------------------------------------
+ * Affiliate link for every user: https://cr7officialsol.com/signup?ref=:code
+ * (No Render /r/:code links anywhere.)
+ *
+ * Flow:
+ * - /api/signup => returns user with affiliateLink = https://cr7officialsol.com/signup?ref=:code
+ * - Frontend (on signup page) reads ?ref=:code and calls /api/track/:code to log click
  */
 
 require("dotenv").config();
@@ -22,9 +23,11 @@ const app = express();
 const FRONTEND_ORIGIN = "https://cr7officialsol.com";
 const FRONTEND_SIGNUP_PATH = "/signup";
 const FRONTEND_SIGNUP_URL = `${FRONTEND_ORIGIN}${FRONTEND_SIGNUP_PATH}`;
-const API_BASE = "https://affiliate-cr7-admin.onrender.com";
-const PORT = process.env.PORT || 3000;
 
+// Public API host (this service)
+const API_BASE = "https://affiliate-cr7-admin.onrender.com";
+
+const PORT = process.env.PORT || 3000;
 const AFF_LEN = parseInt(process.env.AFF_LEN || "9", 10);
 const nanoid = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", AFF_LEN);
 
@@ -63,14 +66,24 @@ mongoose
   .then(() => console.log("✅ Mongo connected:", MONGODB_URI))
   .catch((err) => console.error("❌ Mongo connection error:", err.message));
 
+/* -------------------- HELPERS -------------------- */
+function makeFrontendLink(code) {
+  return `${FRONTEND_SIGNUP_URL}?ref=${code}`;
+}
+function isBackendRLink(url = "") {
+  // Detect old style links like https://<host>/r/<code>
+  return /\/r\/[A-Za-z0-9_-]+$/.test(url);
+}
+
 /* -------------------- ROUTES -------------------- */
 
 // Health check
 app.get("/api/test", (_req, res) => res.json({ ok: true }));
 
 /**
- * SIGNUP
- * ✅ Each user gets affiliateLink = https://cr7officialsol.com/signup?ref=:code
+ * SIGNUP — Create user and return frontend-only affiliate link
+ * - Always returns https://cr7officialsol.com/signup?ref=:code
+ * - If existing user has old /r/:code link, normalize it before returning
  */
 app.post("/api/signup", async (req, res) => {
   try {
@@ -80,28 +93,56 @@ app.post("/api/signup", async (req, res) => {
         .status(400)
         .json({ error: "name and walletAddress are required" });
 
-    const existing = await User.findOne({ walletAddress: walletAddress.trim() });
-    if (existing) return res.json({ success: true, user: existing });
+    const wallet = walletAddress.trim();
 
-    // Generate unique code
-    let affiliateCode;
-    while (true) {
-      affiliateCode = nanoid();
-      const dup = await User.findOne({ affiliateCode });
-      if (!dup) break;
+    let user = await User.findOne({ walletAddress: wallet });
+
+    if (!user) {
+      // Create new user with fresh code
+      let affiliateCode;
+      while (true) {
+        affiliateCode = nanoid();
+        const dup = await User.findOne({ affiliateCode });
+        if (!dup) break;
+      }
+      const affiliateLink = makeFrontendLink(affiliateCode);
+
+      user = await User.create({
+        name: name.trim(),
+        walletAddress: wallet,
+        affiliateCode,
+        affiliateLink, // frontend link with ?ref
+      });
+
+      console.log("✅ User created:", user._id, user.affiliateCode);
+      return res.json({ success: true, user });
     }
 
-    // ✅ Generate link that stays on frontend site
-    const affiliateLink = `${FRONTEND_SIGNUP_URL}?ref=${affiliateCode}`;
+    // Existing user: ensure affiliateCode exists and link is normalized
+    let mustSave = false;
 
-    const user = await User.create({
-      name: name.trim(),
-      walletAddress: walletAddress.trim(),
-      affiliateCode,
-      affiliateLink,
-    });
+    if (!user.affiliateCode) {
+      let affiliateCode;
+      while (true) {
+        affiliateCode = nanoid();
+        const dup = await User.findOne({ affiliateCode });
+        if (!dup) break;
+      }
+      user.affiliateCode = affiliateCode;
+      mustSave = true;
+    }
 
-    console.log("✅ User created:", user._id, affiliateCode);
+    const desiredLink = makeFrontendLink(user.affiliateCode);
+    if (!user.affiliateLink || user.affiliateLink !== desiredLink || isBackendRLink(user.affiliateLink)) {
+      user.affiliateLink = desiredLink;
+      mustSave = true;
+    }
+
+    if (mustSave) {
+      await user.save();
+      console.log("🔄 Normalized existing user link ->", user.affiliateLink);
+    }
+
     return res.json({ success: true, user });
   } catch (err) {
     console.error("❌ Signup error:", err);
@@ -110,8 +151,8 @@ app.post("/api/signup", async (req, res) => {
 });
 
 /**
- * CLICK TRACKING
- * ✅ Frontend calls this when ?ref=CODE is detected
+ * CLICK TRACKING — Frontend calls this when ?ref=:code is present
+ * (The visible link is the frontend URL; tracking is silent via this endpoint.)
  */
 app.get("/api/track/:code", async (req, res) => {
   try {
@@ -194,10 +235,16 @@ app.get("/api/user/:walletAddress", async (req, res) => {
 });
 
 /* -------------------- ROOT -------------------- */
-app.get("/", (_req, res) => res.json({ ok: true }));
+app.get("/", (_req, res) => {
+  res.json({
+    ok: true,
+    message:
+      "CR7 admin API online. Affiliate links are https://cr7officialsol.com/signup?ref=:code",
+  });
+});
 
 /* -------------------- START SERVER -------------------- */
 app.listen(PORT, () => {
-  console.log(`🚀 Server running at ${API_BASE}`);
-  console.log(`🌍 Frontend signup URL: ${FRONTEND_SIGNUP_URL}?ref=:code`);
+  console.log(`🚀 API running at ${API_BASE}`);
+  console.log(`🔗 Affiliate links format: ${FRONTEND_SIGNUP_URL}?ref=:code`);
 });
