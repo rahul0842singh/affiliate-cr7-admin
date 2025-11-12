@@ -1,10 +1,9 @@
 /**
- * CR7 Admin Redirect Server
- * -------------------------
+ * CR7 Admin Redirect Server (Final)
+ * ---------------------------------
  * Frontend: https://cr7officialsol.com
  * Any /r or /r/... request instantly redirects to https://cr7officialsol.com/signup
- * 
- * Other API routes (signup, track, stats) remain functional.
+ * Other API routes (/api/...) remain functional.
  */
 
 require("dotenv").config();
@@ -26,7 +25,16 @@ const PORT = process.env.PORT || 3000;
 const AFF_LEN = parseInt(process.env.AFF_LEN || "9", 10);
 const nanoid = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", AFF_LEN);
 
-/* -------------------- MIDDLEWARE -------------------- */
+/* =========================================================
+   🚀  HARD REDIRECT ROUTE  —  put before any middleware
+   ========================================================= */
+app.get(/^\/r(\/.*)?$/, (req, res) => {
+  console.log("🟢 Hard redirect from", req.originalUrl, "→", FRONTEND_SIGNUP_URL);
+  res.setHeader("Cache-Control", "no-store");
+  return res.redirect(302, FRONTEND_SIGNUP_URL);
+});
+
+/* -------------------- SECURITY & BASICS -------------------- */
 app.disable("x-powered-by");
 app.use(helmet());
 app.use(express.json());
@@ -184,16 +192,9 @@ app.get("/api/user/:walletAddress", async (req, res) => {
   }
 });
 
-/* -------------------- UNIVERSAL REDIRECT -------------------- */
-
-// ✅ Handles /r and any nested route like /r/abc123, /r/test/xyz
-app.get(/^\/r(\/.*)?$/, (req, res) => {
-  console.log("🟢 Redirecting:", req.originalUrl, "→", FRONTEND_SIGNUP_URL);
-  res.setHeader("Cache-Control", "no-store");
-  return res.redirect(302, FRONTEND_SIGNUP_URL);
-});
-
-// ✅ Optional fallback to redirect *all other* unknown routes
+/* =========================================================
+   🔸 FALLBACK REDIRECT  —  after all APIs
+   ========================================================= */
 app.get("*", (req, res) => {
   console.log("🔸 Fallback redirect:", req.originalUrl);
   res.setHeader("Cache-Control", "no-store");
